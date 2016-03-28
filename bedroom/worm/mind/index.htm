@@ -1,0 +1,66 @@
+<!-- Here's a small webpage to test the brain. -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Brain test page</title>
+    <style>html { font-family: Arial, sans-serif}</style>
+    <script src="connectome.js"></script>
+</head>
+<body>
+    <script>
+    var nameBox = document.createElement('TEXTAREA');
+        nameBox.id = "accumleft";
+        nameBox.cols = 3;
+        nameBox.rows = 1;
+        document.body.appendChild(nameBox);
+
+    var nameBox = document.createElement('TEXTAREA');
+        nameBox.id = "accumright";
+        nameBox.cols = 3;
+        nameBox.rows = 1;
+        document.body.appendChild(nameBox);
+
+    var titleBox = document.createElement('h3');
+        titleBox.innerHTML = "Connectome:";
+        document.body.appendChild(titleBox);
+    
+    BRAIN.setup();
+    for(var ps in BRAIN.connectome) {
+        var nameBox = document.createElement('span');
+            nameBox.innerHTML = ps;
+        document.body.appendChild(nameBox);
+
+        var newBox = document.createElement('TEXTAREA');
+            newBox.cols = 3;
+            newBox.rows = 1;
+            newBox.id = ps;
+        document.body.appendChild(newBox);
+    }
+
+    function update() {
+        BRAIN.update();
+        for(var ps in BRAIN.connectome) {
+            var psBox = document.getElementById(ps);
+            var neuron = BRAIN.postSynaptic[ps][BRAIN.thisState];
+
+            psBox.innerHTML = neuron;
+            psBox.style.backgroundColor = "#FFFFFF";
+            if(neuron > 5) {
+                psBox.style.backgroundColor = "#DDFFDD";
+            } 
+            if(neuron > 20) {
+                psBox.style.backgroundColor = "#77FF77";
+            }  
+            if(neuron >= 30) {
+                psBox.style.backgroundColor = "#55FF55";
+            } 
+        }
+        document.getElementById("accumleft").innerHTML = BRAIN.accumleft;
+        document.getElementById("accumright").innerHTML = BRAIN.accumright;
+    }
+
+    setInterval(update, 100); /* run connectome every 100ms */
+    </script>
+</body>
+</html>

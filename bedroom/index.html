@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>C. Elegans Destroys Own Bedroom</title>
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin:0;
+            padding:0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <script src="libs/Three.js"></script>
+    <script src="libs/Detector.js"></script>
+    <script src="libs/cannon.js"></script>
+    <script src="worm/mind/connectome.js"></script>
+    <script src="util.js"></script>
+
+    <script>
+
+    var world;
+    var dt = 1 / 60;
+    function initCannon(){
+        // Setup our world
+        world = new CANNON.World();
+        world.quatNormalizeSkip = 0;
+        world.quatNormalizeFast = false;
+
+        world.gravity.set(0,-10,0);
+        world.broadphase = new CANNON.NaiveBroadphase();
+    }
+
+    if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+    var camera, scene, renderer;
+    var time = Date.now();
+    var container;
+    function initThree() {
+
+        projector = new THREE.Projector();
+
+        container = document.createElement( 'div' );
+        document.body.appendChild( container );
+
+        // scene
+        scene = new THREE.Scene();
+        scene.fog = new THREE.Fog( 0xFFFFFF, 500, 10000 );
+
+        // camera
+        camera = new THREE.PerspectiveCamera( 30, window.innerWidth / window.innerHeight, 0.5, 10000 );
+        var cp = 12;
+        camera.position.set(-cp, cp, cp);
+        camera.lookAt(new THREE.Vector3(0,0,0));
+        scene.add(camera);
+
+        // lights
+        var light, materials;
+        scene.add( new THREE.AmbientLight( 0x333333 ) );
+
+        light = new THREE.DirectionalLight( 0xffffff, 1.0 );
+        var d = 20;
+        light.position.set( -d, d, d/5 );
+        light.castShadow = true;
+        //light.shadowCameraVisible = true;
+
+        light.shadowMapWidth = 1024;
+        light.shadowMapHeight = 1024;
+
+        light.shadowCameraLeft = -d;
+        light.shadowCameraRight = d;
+        light.shadowCameraTop = d;
+        light.shadowCameraBottom = -d;
+
+        light.shadowCameraFar = 3*d;
+        light.shadowCameraNear = d;
+        light.shadowDarkness = 0.5;
+
+        scene.add( light );
+
+        renderer = new THREE.WebGLRenderer( { antialias: true } );
+        renderer.setSize( window.innerWidth, window.innerHeight );
+        renderer.setClearColor( scene.fog.color );
+
+        container.appendChild( renderer.domElement );
+
+        renderer.gammaInput = true;
+        renderer.gammaOutput = true;
+        renderer.shadowMapEnabled = true;
+
+        window.addEventListener('resize', onWindowResize, false );
+        window.addEventListener("mousedown", onMouseDown, false );
+    }
+
+    var wormSegments=[];
+    function initWorm() {
+
+        BRAIN.setup();
+
+        wormHitboxHeight = 0.1;
+        wormHitboxWidth = 0.3;
+        N = 9;
+        var mass = 1;
+        gap = 0.2;
+        var last;
+        for(var i=0; i<N; i++){
+
+            var width = wormHitboxWidth;
+            var boxShape = new CANNON.Box(new CANNON.Vec3(width, width, wormHitboxHeight));
+            //var boxShape = new CANNON.Sphere(width);
+            boxBody = new CANNON.Body({ mass: 1 });
+            boxBody.addShape(boxShape);
+            boxBody.position.set(0, 1.6, -0.5 - wormHitboxHeight*i - gap*i);
+            world.addBody(boxBody);
+            wormSegments.push(boxBody);
+
+            if(last) {
+                var c = new CANNON.LockConstraint(boxBody, last);
+                world.addConstraint(c);
+            }
+            last = boxBody;
+        }
+
+        loader = new THREE.JSONLoader();
+        loader.load( 'worm/body/worm.json', function( geometry,  materials ){
+
+            materials[0].skinning = true;
+
+            var cs = 1.0;
+            
+            var wormMesh = new THREE.SkinnedMesh( geometry, new THREE.MeshFaceMaterial(materials) );
+            wormMesh.position.set(0,0,0);
+            wormMesh.scale.set (cs, cs, cs);
+            wormMesh.castShadow = true;
+            wormMesh.receiveShadow = false;
+
+            scene.add(wormMesh);
+
+        } );
+    }
+
+    function addObjectToScene(path, name) {
+        loader = new THREE.JSONLoader();
+        loader.load( path, function(geometry,  materials) {
+
+            var newObject = new THREE.Mesh( geometry, materials[0] );
+            //var m = THREE.SceneUtils.createMultiMaterialObject( geometry, materials );
+            newObject.position.set(0,0,0);
+            newObject.scale.set (1,1,1);
+            newObject.castShadow = true;
+            newObject.receiveShadow = true;
+            newObject.objectName = name;
+
+            scene.add(newObject);
+
+        } );
+    }
+
+    function addPhysicsObjectToScene(name, hbx, hby, hbz, px, py, pz, mass) {
+        var shape = new CANNON.Box(new CANNON.Vec3(hbx, hby, hbz));
+        var body = new CANNON.Body({ mass: mass });
+        body.addShape(shape);
+        body.position.set(px, py, pz);
+        body.objectName = name;
+        world.addBody(body);
+    }
+
+    function onMouseDown(e){
+
+        for(var i = 0; i < world.bodies.length; i++) {
+            if(world.bodies[i].mass != 0) {
+                var shakePower = 5;
+                world.bodies[i].velocity.x += Math.random()*shakePower*2-shakePower;
+                world.bodies[i].velocity.y += shakePower;
+                world.bodies[i].velocity.z += Math.random()*shakePower*2-shakePower;
+            }
+        }
+
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize( window.innerWidth, window.innerHeight );
+    }
+
+    function animate() {
+        requestAnimationFrame( animate );
+        updateWorm();
+        updatePhysics();
+        render();
+    }
+
+    var lastTime = Date.now();
+    var wormVelocityX = 0;
+    var wormVelocityY = 0;
+    var noseTouchTimer = 0;
+    var sniffTimer = 0;
+    function updateWorm() {
+
+        if(noseTouchTimer > 0) {
+            BRAIN.stimulateNoseTouchNeurons = true;
+            BRAIN.stimulateFoodSenseNeurons = false;
+            noseTouchTimer-=1;
+        } else {
+            BRAIN.stimulateNoseTouchNeurons = false;
+            BRAIN.stimulateFoodSenseNeurons = true;
+            noseTouchTimer=0;
+        }
+
+        sniffTimer++;
+
+        var currTime = Date.now();
+        if(currTime - lastTime > 300) {
+
+            var muscleStrength = 2.9;
+
+            BRAIN.update();
+            
+            var max = 1.0;
+
+            if(BRAIN.accumleft > 0.0) {
+                wormVelocityX = max;
+            } else {
+                wormVelocityX = -max;
+            }
+
+            if(BRAIN.accumright > 0.0) {
+                wormVelocityY = max;
+            } else {
+                wormVelocityY = -max;
+            }
+            
+            lastTime = currTime;
+        }
+
+        wormVelocityX *= 0.999;
+        wormVelocityY *= 0.999;
+
+        wiggleWorm(wormVelocityX, "x", N-1);
+        wiggleWorm(wormVelocityY, "y", N-1);
+
+        wiggleWorm(-wormVelocityY*.5, "x", 3);
+        wiggleWorm(-wormVelocityX*.5, "y", 3);
+
+        wiggleWorm(wormVelocityY, "x", 0);
+        wiggleWorm(wormVelocityX, "y", 0);
+
+        wiggleWorm(wormVelocityX+wormVelocityY, "y", N-1);
+
+    }
+
+    function wiggleWorm(velocity, axis, index) {
+        var baseVelocity, rotVelocity;
+
+        if(axis === "x") {
+            baseVelocity = new CANNON.Vec3(velocity, 0, 0);
+        } else if(axis === "y") {
+            baseVelocity = new CANNON.Vec3(0, velocity, 0);
+        } else if(axis === "z") {
+            baseVelocity = new CANNON.Vec3(0, 0, velocity);
+        }
+
+        rotVelocity = rotateVector(baseVelocity, wormSegments[index].quaternion);
+        wormSegments[index].velocity.vadd(rotVelocity, wormSegments[index].velocity);
+    }
+
+    function updatePhysics(){
+        world.step(dt);
+
+        scene.traverse(function(child){
+            if (child instanceof THREE.SkinnedMesh){
+                
+                child.skeleton.bones[0].position.x = wormSegments[0].position.x;
+                child.skeleton.bones[0].position.y = wormSegments[0].position.y;
+                child.skeleton.bones[0].position.z = wormSegments[0].position.z;
+                
+                for(var i = 0; i < N; i++) {
+                    child.skeleton.bones[i].position.x = wormSegments[i].position.x;
+                    child.skeleton.bones[i].position.y = wormSegments[i].position.y;
+                    child.skeleton.bones[i].position.z = wormSegments[i].position.z;
+                    child.skeleton.bones[i].quaternion.copy(wormSegments[i].quaternion);
+                }
+            } else {
+
+                for(var i = 0; i < world.bodies.length; i++) {
+                    if(world.bodies[i].objectName != undefined && world.bodies[i].objectName === child.objectName) {
+                        child.position.copy(world.bodies[i].position);
+                        child.quaternion.copy(world.bodies[i].quaternion);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    function getPhysicsObjectWithName(name) {
+        for(var i = 0; i < world.bodies.length; i++) {
+            if(world.bodies[i].objectName != undefined && world.bodies[i].objectName === name) {
+                return world.bodies[i];
+            }
+        }
+        return undefined;
+    }
+
+    function render() {
+        renderer.render(scene, camera);
+    }
+
+    initThree();
+    initCannon();
+    initWorm();
+
+    addPhysicsObjectToScene("wall", 15, 15, 0.2,  0, 0, -5,  0);
+    addPhysicsObjectToScene("wall2", 0.2, 15, 15,  5, 0, 0,  0);
+    addPhysicsObjectToScene("wall3", 15, 15, 0.2,  0, 0, 4,  0);
+    addPhysicsObjectToScene("wall4", 0.2, 15, 15,  -4, 0, 0,  0);
+
+    addObjectToScene("room/room.json", "room");
+
+    addPhysicsObjectToScene("nightstand", 0.7, 0.7, 0.5,  2.5,0.7,-3.5,  1);
+    getPhysicsObjectWithName("nightstand").quaternion.setFromAxisAngle(new CANNON.Vec3(0,1,0), -0.3);
+    addObjectToScene("room/nightstand.json", "nightstand");
+    addObjectToScene("room/nightstand-handles.json", "nightstand");
+
+    addPhysicsObjectToScene("dresser", 0.7, 1.3, 0.5,  -3,1.3,-3.5,  1);
+    getPhysicsObjectWithName("dresser").quaternion.setFromAxisAngle(new CANNON.Vec3(0,1,0), 0.3);
+    addObjectToScene("room/dresser.json", "dresser");
+    addObjectToScene("room/dresserhandles.json", "dresser");
+    
+    addPhysicsObjectToScene("floorlamp", 0.3, 1.7, 0.3,  3.5,2.0,-2.5,   1);
+    addObjectToScene("room/floorlampbase.json", "floorlamp");
+    addObjectToScene("room/floorlampshade.json", "floorlamp");
+
+    addPhysicsObjectToScene("lamp", 0.3, 0.6, 0.3,  2.8,2.0,-3.5,  1);
+    addObjectToScene("room/lampshade.json", "lamp");
+    addObjectToScene("room/lampbase.json", "lamp");
+
+    addPhysicsObjectToScene("book", 0.3, 0.1, 0.3,   2.1,1.5,-3.5,   1);
+    addObjectToScene("room/book.json", "book");
+
+    addPhysicsObjectToScene("coffeetable", 0.7, 0.5, 0.7,  -1.4, .5, 2.6,  1);
+    getPhysicsObjectWithName("coffeetable").quaternion.setFromAxisAngle(new CANNON.Vec3(0,1,0), 0.1);
+    addObjectToScene("room/coffeetable.json", "coffeetable");
+    addPhysicsObjectToScene("plate", 0.2, 0.05, 0.2,        -1.4, 1.5, 2.6,   1);
+    addObjectToScene("room/plate.json", "plate");
+    addPhysicsObjectToScene("orange", 0.1, 0.1, 0.1,        -1.4, 1.6, 2.6,   1);
+    addObjectToScene("room/orange.json", "orange");
+
+    addPhysicsObjectToScene("bed", 1.2, 0.4, 1.8,  0, 0.4, -2.4,  3);
+    addObjectToScene("room/bed.json", "bed");
+    addObjectToScene("room/bedframe.json", "bed");
+
+    addPhysicsObjectToScene("door", 0.1, 0.1, 0.1,  5, 1.5, 0,  0);
+    addObjectToScene("room/door.json", "door");
+    addObjectToScene("room/doorhandle.json", "door");
+    addObjectToScene("room/doorframe.json", "door");
+
+    addPhysicsObjectToScene("windowleft", 0.1, 0.1, 0.1,  5, 1.5, 2.5,  0);
+    addObjectToScene("room/window.json", "windowleft");
+    addPhysicsObjectToScene("windowright", 0.1, 0.1, 0.1,  5, 1.5, -2.5,  0);
+    addObjectToScene("room/window.json", "windowright");
+
+    addPhysicsObjectToScene("window2", 0.1, 0.1, 0.1,  0, 1.5, -5,  0);
+    getPhysicsObjectWithName("window2").quaternion.setFromAxisAngle(new CANNON.Vec3(0,1,0), 3.14/2);
+    addObjectToScene("room/widewindow.json", "window2");
+
+    addPhysicsObjectToScene("couch", 2.2, 1.0, 1.0,  1.5, 1, 2.5,  4);
+    getPhysicsObjectWithName("couch").quaternion.setFromAxisAngle(new CANNON.Vec3(0,1,0), 3.3);
+    addObjectToScene("room/couchbase.json", "couch");
+    addObjectToScene("room/couchcushions.json", "couch");
+
+    addPhysicsObjectToScene("chair", 0.4, 0.8, 0.4,   -2.3, 1.5, -1,   1);
+    getPhysicsObjectWithName("chair").quaternion.setFromAxisAngle(new CANNON.Vec3(0,1,0), 2.1);
+    addObjectToScene("room/chair.json", "chair");
+
+    var groundShape = new CANNON.Plane();
+    var groundBody = new CANNON.Body({ mass: 0 });
+    groundBody.addShape(groundShape);
+    groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1,0,0),-Math.PI/2);
+    world.addBody(groundBody);
+
+    var audio = new Audio('Sniff Short-SoundBible.com-2046435948.wav');
+
+    wormSegments[wormSegments.length-1].addEventListener("collide",function(e){
+        //console.log("The sphere just collided with the ground!");
+        //console.log("Collided with body:",e.body);
+        //console.log("Contact between bodies:",e.contact);
+        
+        noseTouchTimer = 3;
+
+        if(sniffTimer > 3) {
+            audio.play();
+            sniffTimer = 0;
+        }
+    });
+
+    animate();
+
+    </script>
+</body>
+</html>
