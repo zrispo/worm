@@ -382,7 +382,7 @@
     groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1,0,0),-Math.PI/2);
     world.addBody(groundBody);
 
-    var audio = new Audio('Sniff Short-SoundBible.com-2046435948.wav');
+    //var audio = new Audio('Sniff Short-SoundBible.com-2046435948.wav');
 
     wormSegments[wormSegments.length-1].addEventListener("collide",function(e){
         //console.log("The sphere just collided with the ground!");
@@ -392,7 +392,7 @@
         noseTouchTimer = 3;
 
         if(sniffTimer > 3) {
-            audio.play();
+            //audio.play();
             sniffTimer = 0;
         }
     });
